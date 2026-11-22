@@ -1,0 +1,64 @@
+name: TikTok autopilot
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      custom_quote:
+        description: "اكتب الخاطرة المخصصة (اتركه فارغاً للتوليد التلقائي)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tiktok-autopilot
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install FFmpeg and Arabic fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg fonts-noto-core fonts-dejavu-core curl
+          mkdir -p assets/fonts
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf" -o assets/fonts/Cairo.ttf || true
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/tajawal/Tajawal-ExtraBold.ttf" -o assets/fonts/Tajawal-ExtraBold.ttf || true
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/almarai/Almarai-ExtraBold.ttf" -o assets/fonts/Almarai-ExtraBold.ttf || true
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Bold.ttf" -o assets/fonts/Amiri-Bold.ttf || true
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Generate and publish video
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          TIKTOK_PRIVACY_LEVEL: ${{ vars.TIKTOK_PRIVACY_LEVEL }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          CUSTOM_QUOTE: ${{ github.event.inputs.custom_quote }}
+          CHANNEL_SIGNATURE: ${{ vars.CHANNEL_SIGNATURE }}
+          CHANNEL_HASHTAGS: ${{ vars.CHANNEL_HASHTAGS }}
+          CHANNEL_NICHE: ${{ vars.CHANNEL_NICHE }}
+        run: python main.py
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/inspiration_pool.json data/history.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update TikTok generation data"
+            git push origin HEAD:main
+          fi
